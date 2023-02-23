@@ -1,7 +1,6 @@
 #include "PlayScene.h"
 #include "Game.h"
 #include "EventManager.h"
-#include "InputType.h"
 
 // required for IMGUI
 #include "imgui.h"
@@ -20,6 +19,7 @@ PlayScene::~PlayScene()
 void PlayScene::Draw()
 {
 	DrawDisplayList();
+
 	SDL_SetRenderDrawColor(Renderer::Instance().GetRenderer(), 255, 255, 255, 255);
 }
 
@@ -33,139 +33,10 @@ void PlayScene::Clean()
 	RemoveAllChildren();
 }
 
-
 void PlayScene::HandleEvents()
 {
 	EventManager::Instance().Update();
 
-	GetPlayerInput();
-
-	GetKeyboardInput();
-}
-
-void PlayScene::GetPlayerInput()
-{
-	switch (m_pCurrentInputType)
-	{
-	case static_cast<int>(InputType::GAME_CONTROLLER):
-	{
-		// handle player movement with GameController
-		if (SDL_NumJoysticks() > 0)
-		{
-			if (EventManager::Instance().GetGameController(0) != nullptr)
-			{
-				constexpr auto dead_zone = 10000;
-				if (EventManager::Instance().GetGameController(0)->STICK_LEFT_HORIZONTAL > dead_zone)
-				{
-					m_pPlayer->SetAnimationState(PlayerAnimationState::PLAYER_RUN_RIGHT);
-					m_playerFacingRight = true;
-				}
-				else if (EventManager::Instance().GetGameController(0)->STICK_LEFT_HORIZONTAL < -dead_zone)
-				{
-					m_pPlayer->SetAnimationState(PlayerAnimationState::PLAYER_RUN_LEFT);
-					m_playerFacingRight = false;
-				}
-				else
-				{
-					if (m_playerFacingRight)
-					{
-						m_pPlayer->SetAnimationState(PlayerAnimationState::PLAYER_IDLE_RIGHT);
-					}
-					else
-					{
-						m_pPlayer->SetAnimationState(PlayerAnimationState::PLAYER_IDLE_LEFT);
-					}
-				}
-			}
-		}
-	}
-	break;
-	case static_cast<int>(InputType::KEYBOARD_MOUSE):
-	{
-		// handle player movement with mouse and keyboard
-		if (EventManager::Instance().IsKeyDown(SDL_SCANCODE_A))
-		{
-			m_pPlayer->SetAnimationState(PlayerAnimationState::PLAYER_RUN_LEFT);
-			m_playerFacingRight = false;
-		}
-		else if (EventManager::Instance().IsKeyDown(SDL_SCANCODE_D))
-		{
-			m_pPlayer->SetAnimationState(PlayerAnimationState::PLAYER_RUN_RIGHT);
-			m_playerFacingRight = true;
-		}
-		else
-		{
-			if (m_playerFacingRight)
-			{
-				m_pPlayer->SetAnimationState(PlayerAnimationState::PLAYER_IDLE_RIGHT);
-			}
-			else
-			{
-				m_pPlayer->SetAnimationState(PlayerAnimationState::PLAYER_IDLE_LEFT);
-			}
-		}
-	}
-	break;
-	case static_cast<int>(InputType::ALL):
-	{
-		if (SDL_NumJoysticks() > 0)
-		{
-			if (EventManager::Instance().GetGameController(0) != nullptr)
-			{
-				constexpr auto dead_zone = 10000;
-				if (EventManager::Instance().GetGameController(0)->STICK_LEFT_HORIZONTAL > dead_zone
-					|| EventManager::Instance().IsKeyDown(SDL_SCANCODE_D))
-				{
-					m_pPlayer->SetAnimationState(PlayerAnimationState::PLAYER_RUN_RIGHT);
-					m_playerFacingRight = true;
-				}
-				else if (EventManager::Instance().GetGameController(0)->STICK_LEFT_HORIZONTAL < -dead_zone
-					|| EventManager::Instance().IsKeyDown(SDL_SCANCODE_A))
-				{
-					m_pPlayer->SetAnimationState(PlayerAnimationState::PLAYER_RUN_LEFT);
-					m_playerFacingRight = false;
-				}
-				else
-				{
-					if (m_playerFacingRight)
-					{
-						m_pPlayer->SetAnimationState(PlayerAnimationState::PLAYER_IDLE_RIGHT);
-					}
-					else
-					{
-						m_pPlayer->SetAnimationState(PlayerAnimationState::PLAYER_IDLE_LEFT);
-					}
-				}
-			}
-		}
-		else if (EventManager::Instance().IsKeyDown(SDL_SCANCODE_A))
-		{
-			m_pPlayer->SetAnimationState(PlayerAnimationState::PLAYER_RUN_LEFT);
-			m_playerFacingRight = false;
-		}
-		else if (EventManager::Instance().IsKeyDown(SDL_SCANCODE_D))
-		{
-			m_pPlayer->SetAnimationState(PlayerAnimationState::PLAYER_RUN_RIGHT);
-			m_playerFacingRight = true;
-		}
-		else
-		{
-			if (m_playerFacingRight)
-			{
-				m_pPlayer->SetAnimationState(PlayerAnimationState::PLAYER_IDLE_RIGHT);
-			}
-			else
-			{
-				m_pPlayer->SetAnimationState(PlayerAnimationState::PLAYER_IDLE_LEFT);
-			}
-		}
-	}
-	break;
-	}
-}
-
-void PlayScene::GetKeyboardInput()
-{
 	if (EventManager::Instance().IsKeyDown(SDL_SCANCODE_ESCAPE))
 	{
 		Game::Instance().Quit();
@@ -187,103 +58,257 @@ void PlayScene::Start()
 	// Set GUI Title
 	m_guiTitle = "Play Scene";
 
-	// Set Input Type
-	m_pCurrentInputType = static_cast<int>(InputType::KEYBOARD_MOUSE);
-	
-	// Plane Sprite
-	m_pPlaneSprite = new Plane();
-	AddChild(m_pPlaneSprite);
+	PlayScene::m_buildGrid(); // construct a Grid of connected tiles
 
-	// Player Sprite
-	m_pPlayer = new Player();
-	AddChild(m_pPlayer);
-	m_playerFacingRight = true;
+	auto offset = glm::vec2(Config::TILE_SIZE * 0.5f, Config::TILE_SIZE * 0.5f);
 
-	
+	m_currentHeuristic = Heuristic::MANHATTAN;
 
-	// Back Button
-	m_pBackButton = new Button("../Assets/textures/backButton.png", "backButton", GameObjectType::BACK_BUTTON);
-	m_pBackButton->GetTransform()->position = glm::vec2(300.0f, 400.0f);
-	m_pBackButton->AddEventListener(Event::CLICK, [&]()-> void
-	{
-		m_pBackButton->SetActive(false);
-		Game::Instance().ChangeSceneState(SceneState::START);
-	});
 
-	m_pBackButton->AddEventListener(Event::MOUSE_OVER, [&]()->void
-	{
-		m_pBackButton->SetAlpha(128);
-	});
+	// Add the Target to the Scene
+	m_pTarget = new Target(); // instantiate an object of type Target
+	m_pTarget->GetTransform()->position = m_getTile(15, 11)->GetTransform()->position + offset;
+	m_pTarget-> NavigationObject::SetGridPosition(15.0f, 11.0f); // record grid space position
+	m_getTile(15, 11)->SetTileStatus(TileStatus::GOAL);
+	AddChild(m_pTarget);
 
-	m_pBackButton->AddEventListener(Event::MOUSE_OUT, [&]()->void
-	{
-		m_pBackButton->SetAlpha(255);
-	});
-	AddChild(m_pBackButton);
+	// Add the StarShip to the Scene
+	m_pStarShip = new StarShip();
+	m_pStarShip->GetTransform()->position = m_getTile(1, 3)->GetTransform()->position + offset;
+	m_pStarShip->SetGridPosition(1.0f, 3.0f); // record grid space position
+	m_getTile(1, 3)->SetTileStatus(TileStatus::START);
+	AddChild(m_pStarShip);
 
-	// Next Button
-	m_pNextButton = new Button("../Assets/textures/nextButton.png", "nextButton", GameObjectType::NEXT_BUTTON);
-	m_pNextButton->GetTransform()->position = glm::vec2(500.0f, 400.0f);
-	m_pNextButton->AddEventListener(Event::CLICK, [&]()-> void
-	{
-		m_pNextButton->SetActive(false);
-		Game::Instance().ChangeSceneState(SceneState::END);
-	});
 
-	m_pNextButton->AddEventListener(Event::MOUSE_OVER, [&]()->void
-	{
-		m_pNextButton->SetAlpha(128);
-	});
+	// Preload Sounds
 
-	m_pNextButton->AddEventListener(Event::MOUSE_OUT, [&]()->void
-	{
-		m_pNextButton->SetAlpha(255);
-	});
+	SoundManager::Instance().Load("../Assets/Audio/yay.ogg", "yay", SoundType::SOUND_SFX);
+	SoundManager::Instance().Load("../Assets/Audio/thunder.ogg", "thunder", SoundType::SOUND_SFX);
 
-	AddChild(m_pNextButton);
+	m_computeTileCosts();
 
-	/* Instructions Label */
-	m_pInstructionsLabel = new Label("Press the backtick (`) character to toggle Debug View", "Consolas");
-	m_pInstructionsLabel->GetTransform()->position = glm::vec2(Config::SCREEN_WIDTH * 0.5f, 500.0f);
-
-	AddChild(m_pInstructionsLabel);
-
-	/* DO NOT REMOVE */
-	ImGuiWindowFrame::Instance().SetGuiFunction([this] { GUI_Function(); });
+	ImGuiWindowFrame::Instance().SetGuiFunction(std::bind(&PlayScene::GUI_Function, this));
 }
 
-void PlayScene::GUI_Function() 
+void PlayScene::m_buildGrid()
 {
+	const auto tile_size = Config::TILE_SIZE; // alias
+
+	// layout a grid of tiles (20 x 15)
+	for (int row = 0; row < Config::ROW_NUM; ++row)
+	{
+		for (int col = 0; col < Config::COL_NUM; ++col)
+		{
+			Tile* tile = new Tile();
+			tile->GetTransform()->position = glm::vec2(col * tile_size, row * tile_size); // world position
+			tile->SetGridPosition(col, row); // Record the Grid Position
+			tile->SetParent(this);
+			tile->AddLabels();
+			AddChild(tile);
+			tile->SetEnabled(false);
+			m_pGrid.push_back(tile);
+
+		}
+	}
+
+	// setup the neighbour references for each tile in the grid
+	// tiles = nodes in our graph
+	for (int row = 0; row < Config::ROW_NUM; ++row)
+	{
+		for (int col = 0; col < Config::COL_NUM; ++col)
+		{
+			Tile* tile = m_getTile(col, row);
+
+			// TopMost Neighbour
+			if (row == 0)
+			{
+				tile->SetNeighbourTile(NeighbourTile::TOP_TILE, nullptr);
+			}
+			else
+			{
+				tile->SetNeighbourTile(NeighbourTile::TOP_TILE, m_getTile(col, row - 1));
+			}
+
+			// RightMost Neighbour
+			if (col == Config::COL_NUM - 1)
+			{
+				tile->SetNeighbourTile(NeighbourTile::RIGHT_TILE, nullptr);
+			}
+			else
+			{
+				tile->SetNeighbourTile(NeighbourTile::RIGHT_TILE, m_getTile(col + 1, row));
+			}
+
+			// BottomMost Neighbour
+			if (row == Config::ROW_NUM - 1)
+			{
+				tile->SetNeighbourTile(NeighbourTile::BOTTOM_TILE, nullptr);
+			}
+			else
+			{
+				tile->SetNeighbourTile(NeighbourTile::BOTTOM_TILE, m_getTile(col, row + 1));
+			}
+
+			// LeftMost Neighbour
+			if (col == 0)
+			{
+				tile->SetNeighbourTile(NeighbourTile::LEFT_TILE, nullptr);
+			}
+			else
+			{
+				tile->SetNeighbourTile(NeighbourTile::LEFT_TILE, m_getTile(col - 1, row));
+			}
+		}
+	}
+}
+
+bool PlayScene::m_getGridEnabled() const
+{
+	return m_isGridEnabled;
+}
+
+void PlayScene::m_setGridEnabled(const bool state)
+{
+	m_isGridEnabled = state;
+	for (const auto tile : m_pGrid)
+	{
+		tile->SetEnabled(m_isGridEnabled); // toggles each tile object
+		tile->SetLabelsEnabled(m_isGridEnabled); // toggles each label object within the tile
+	}
+}
+
+void PlayScene::m_computeTileCosts()
+{
+	// for next lab (4b)
+	float distance = 0.0f;
+	float dx = 0.0f;
+	float dy = 0.0f;
+
+	for (const auto tile : m_pGrid) {
+
+		switch (m_currentHeuristic) {
+
+		case Heuristic::MANHATTAN:
+			dx = abs(tile->GetGridPosition().x - m_pTarget->GetGridPosition().x);
+			dy = abs(tile->GetGridPosition().y - m_pTarget->GetGridPosition().y);
+			distance = dx + dy;
+
+
+			break;
+		case Heuristic::EUCLIDEAN:
+			distance = Util::Distance(tile->GetGridPosition(), m_pTarget->GetGridPosition());
+			break;
+		}
+		tile->SetTileCost(distance);
+	}
+}
+
+Tile* PlayScene::m_getTile(const int col, const int row) const
+{
+	return m_pGrid[(row * Config::COL_NUM) + col];
+}
+
+Tile* PlayScene::m_getTile(const glm::vec2 grid_position) const
+{
+	const auto col = grid_position.x;
+	const auto row = grid_position.y;
+	return m_getTile(col, row);
+}
+
+void PlayScene::GUI_Function()
+{
+	auto offset = glm::vec2(Config::TILE_SIZE * 0.5f, Config::TILE_SIZE * 0.5f);
+
 	// Always open with a NewFrame
 	ImGui::NewFrame();
 
 	// See examples by uncommenting the following - also look at imgui_demo.cpp in the IMGUI filter
 	//ImGui::ShowDemoWindow();
-	
-	ImGui::Begin("Your Window Title Goes Here", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoMove);
 
-	ImGui::Text("Player Input");
-	ImGui::RadioButton("Keyboard / Mouse", &m_pCurrentInputType, static_cast<int>(InputType::KEYBOARD_MOUSE)); ImGui::SameLine();
-	ImGui::RadioButton("Game Controller", &m_pCurrentInputType, static_cast<int>(InputType::GAME_CONTROLLER)); ImGui::SameLine();
-	ImGui::RadioButton("Both", &m_pCurrentInputType, static_cast<int>(InputType::ALL));
+	ImGui::Begin("GAME3001 - W2023 - Lab4", NULL, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_MenuBar);
 
 	ImGui::Separator();
 
-	if(ImGui::Button("My Button"))
+	// Debug Properties
+	static bool toggle_grid = false;
+	if (ImGui::Checkbox("Toggle Grid", &toggle_grid))
 	{
-		std::cout << "My Button Pressed" << std::endl;
+		m_isGridEnabled = toggle_grid;
+		m_setGridEnabled(m_isGridEnabled);
 	}
 
 	ImGui::Separator();
 
-	static float float3[3] = { 0.0f, 1.0f, 1.5f };
-	if(ImGui::SliderFloat3("My Slider", float3, 0.0f, 2.0f))
-	{
-		std::cout << float3[0] << std::endl;
-		std::cout << float3[1] << std::endl;
-		std::cout << float3[2] << std::endl;
-		std::cout << "---------------------------\n";
+	//heuristi select
+
+	static int radio = static_cast<int>(m_currentHeuristic);
+	ImGui::Text("Heuristic Type");
+	ImGui::RadioButton("Manhattan", &radio, static_cast<int>(Heuristic::MANHATTAN));
+
+	ImGui::SameLine();
+
+	ImGui::RadioButton("Euclidean", &radio, static_cast<int>(Heuristic::EUCLIDEAN));
+
+	if (m_currentHeuristic != static_cast<Heuristic>(radio)) {
+
+		m_currentHeuristic = static_cast<Heuristic>(radio);
+		m_computeTileCosts();
+
 	}
-	
+
+
+
+
+	ImGui::Separator();
+
+	// StarShip Properties
+	static int start_position[2] = {
+		static_cast<int>(m_pStarShip->GetGridPosition().x),
+		static_cast<int>(m_pStarShip->GetGridPosition().y)
+	};
+	if (ImGui::SliderInt2("Start Position", start_position, 0, Config::COL_NUM - 1))
+	{
+		// constrain the object within max rows
+		if (start_position[1] > Config::ROW_NUM - 1)
+		{
+			start_position[1] = Config::ROW_NUM - 1;
+		}
+
+		// convert grid space to world space when snapping the object
+		m_getTile(m_pStarShip->GetGridPosition())->SetTileStatus(TileStatus::UNVISITED); // set the tile we left to unvisited
+		m_pStarShip->GetTransform()->position =
+			m_getTile(start_position[0], start_position[1])->GetTransform()->position + offset;
+		m_pStarShip->SetGridPosition(start_position[0], start_position[1]);
+		m_getTile(m_pStarShip->GetGridPosition())->SetTileStatus(TileStatus::START);
+	}
+
+	ImGui::Separator();
+
+	// Target Properties
+	static int goal_position[2] = {
+		static_cast<int>(m_pTarget->GetGridPosition().x),
+		static_cast<int>(m_pTarget->GetGridPosition().y)
+	};
+	if (ImGui::SliderInt2("Goal Position", goal_position, 0, Config::COL_NUM - 1))
+	{
+		// constrain the object within max rows
+		if (goal_position[1] > Config::ROW_NUM - 1)
+		{
+			goal_position[1] = Config::ROW_NUM - 1;
+		}
+
+		// convert grid space to world space when snapping the object
+		m_getTile(m_pTarget->GetGridPosition())->SetTileStatus(TileStatus::UNVISITED); // set the tile we left to unvisited
+		m_pTarget->GetTransform()->position =
+			m_getTile(goal_position[0], goal_position[1])->GetTransform()->position + offset;
+		m_pTarget->SetGridPosition(goal_position[0], goal_position[1]);
+		m_getTile(m_pTarget->GetGridPosition())->SetTileStatus(TileStatus::GOAL);
+		m_computeTileCosts();
+	}
+
+	ImGui::Separator();
+
 	ImGui::End();
 }
+
+
