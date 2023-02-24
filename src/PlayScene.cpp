@@ -80,10 +80,20 @@ void PlayScene::Start()
 	AddChild(m_pStarShip);
 
 
-	// Preload Sounds
 
+	// Music
+	SoundManager::Instance().Load("../Assets/Audio/Powerful-Trap-.mp3", "hi", SoundType::SOUND_MUSIC);
+	SoundManager::Instance().PlayMusic("hi");
+	SoundManager::Instance().SetMusicVolume(10);
+
+	// Preload Sounds
 	SoundManager::Instance().Load("../Assets/Audio/yay.ogg", "yay", SoundType::SOUND_SFX);
 	SoundManager::Instance().Load("../Assets/Audio/thunder.ogg", "thunder", SoundType::SOUND_SFX);
+	SoundManager::Instance().Load("../Assets/Audio/torpedo.ogg", "torpedo", SoundType::SOUND_SFX);
+	SoundManager::Instance().Load("../Assets/Audio/torpedo_k.ogg", "torpedo22", SoundType::SOUND_SFX);
+
+
+
 
 	m_computeTileCosts();
 
@@ -233,6 +243,7 @@ void PlayScene::GUI_Function()
 	static bool toggle_grid = false;
 	if (ImGui::Checkbox("Toggle Grid", &toggle_grid))
 	{
+		SoundManager::Instance().PlaySound("torpedo", 0);
 		m_isGridEnabled = toggle_grid;
 		m_setGridEnabled(m_isGridEnabled);
 	}
@@ -307,6 +318,38 @@ void PlayScene::GUI_Function()
 	}
 
 	ImGui::Separator();
+
+	
+	if (goal_position[0] == start_position[0] && goal_position[1] == start_position[1]) {
+		
+		if (m_atTarget !=  true) {
+		
+		
+		
+		
+			SoundManager::Instance().PlaySound("torpedo22", 0);
+		
+		}
+
+		
+		m_atTarget = true;
+
+
+
+	}
+	else {
+
+
+		m_atTarget = false;
+
+
+	}
+
+
+
+
+
+
 
 	ImGui::End();
 }

@@ -21,6 +21,9 @@ public:
 	virtual void HandleEvents() override;
 	virtual void Start() override;
 private:
+
+	bool m_atTarget;
+
 	// IMGUI Function
 	void GUI_Function();
 	std::string m_guiTitle;
